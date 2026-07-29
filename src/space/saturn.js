@@ -36,6 +36,7 @@ export function buildSaturn(scene, opts = {}) {
   pmat.specularPower = 8;
   planet.material = pmat;
   planet.isPickable = false;
+  planet.applyFog = false; // distant body: must not be swallowed by aerial fog
   pmat.freeze();
   planet.freezeWorldMatrix();
 
@@ -57,6 +58,7 @@ export function buildSaturn(scene, opts = {}) {
   ring.material = rmat;
   ring.isPickable = false;
   ring.visibility = 1;
+  ring.applyFog = false;
   rmat.freeze();
   ring.freezeWorldMatrix();
 

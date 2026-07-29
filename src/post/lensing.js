@@ -129,11 +129,10 @@ export class LensingPass {
   update() {
     if (!this.pp) return;
     const cam = this.camera;
-    const eng = this.scene.getEngine();
     const center = this.blackHole.worldCenter;
 
     // In front of the camera?
-    cam.getDirectionToRef(Vector3.Forward(), v3a); // world forward
+    cam.getDirectionToRef(AXIS_Z, v3a); // world forward
     v3b.copyFrom(center).subtractInPlace(cam.position);
     const facing = Vector3.Dot(v3a, v3b.normalizeToRef(v3c));
 
@@ -148,7 +147,7 @@ export class LensingPass {
     const v = 1 - v3d.y; // post vUV origin is bottom-left
 
     // Apparent radius: project a point one horizon-radius "up" from center.
-    cam.getDirectionToRef(Vector3.Up(), v3a);
+    cam.getDirectionToRef(AXIS_Y, v3a);
     v3e.copyFrom(center).addInPlace(v3a.scaleInPlace(this.blackHole.radius));
     Vector3.ProjectToRef(v3e, IDENTITY, cam.getTransformationMatrix(), this.viewport, v3d);
     const rUv = Math.abs(1 - v3d.y - v);
@@ -167,3 +166,6 @@ export class LensingPass {
 
 import { Matrix } from '@babylonjs/core/Maths/math.js';
 const IDENTITY = Matrix.Identity();
+// Module-scope axis constants so update() never allocates.
+const AXIS_Z = new Vector3(0, 0, 1);
+const AXIS_Y = new Vector3(0, 1, 0);

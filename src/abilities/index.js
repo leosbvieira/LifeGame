@@ -49,6 +49,17 @@ export class AbilitySystem {
     }
 
     // --- Particle systems (created once, retriggered) ---
+    // Continuous engine ion trail (always on; intensity tracks speed/boost).
+    this.psEngine = this._makePS('engineTrail', 1400, this.dot, ParticleSystem.BLENDMODE_ADD);
+    this.psEngine.minLifeTime = 0.25;
+    this.psEngine.maxLifeTime = 0.8;
+    this.psEngine.gravity.set(0, 0, 0);
+    this.psEngine.minSize = 1.5;
+    this.psEngine.maxSize = 5;
+    this.psEngine.preventAutoStart = false;
+    this.psEngine.emitRate = 80;
+    this.psEngine.start();
+
     this.psPulse = this._makePS('pulse', 900, this.dot, ParticleSystem.BLENDMODE_ADD);
     this.psTractor = this._makePS('tractor', 700, this.spark, ParticleSystem.BLENDMODE_ADD);
     this.psImplode = this._makePS('implode', 1400, this.dot, ParticleSystem.BLENDMODE_ADD);
@@ -134,6 +145,24 @@ export class AbilitySystem {
     const draftGlow = (0.15 + spd * 0.9 + ship.boostAmt * 1.2) * dt * 60;
     const draftR = 16 + spd * 18 + ship.boostAmt * 22;
     field.splat(sx, sz, draftR, draftDepth * 0.12, draftDepth * 0.08, draftGlow * 0.12, 0);
+
+    // --- Engine ion trail: emit from the tail, streaming backward. ---
+    const eng = this.psEngine;
+    v3a.copyFrom(ship.forward).scaleInPlace(-4);
+    v3a.addInPlace(ship.position);
+    eng.emitter.copyFrom(v3a);
+    // Backward + slight spread, faster under boost.
+    const back = 30 + spd * 60 + ship.boostAmt * 120;
+    eng.direction1.copyFromFloats(-ship.forward.x * back - 4, -ship.forward.y * back - 2, -ship.forward.z * back - 4);
+    eng.direction2.copyFromFloats(-ship.forward.x * back + 4, -ship.forward.y * back + 2, -ship.forward.z * back + 4);
+    eng.minEmitPower = back * 0.5;
+    eng.maxEmitPower = back;
+    eng.emitRate = 60 + spd * 520 + ship.boostAmt * 700;
+    // Cool cyan idling -> hot white-blue under boost.
+    const bo = ship.boostAmt;
+    eng.color1.set(0.3 + bo * 0.5, 0.7 + bo * 0.2, 1.0, 1);
+    eng.color2.set(0.5 + bo * 0.4, 0.5 + bo * 0.3, 1.0, 0.9);
+    eng.colorDead.set(0.1, 0.2, 0.5, 0);
 
     // Boost wake glow light under the ship.
     if (ship.boostAmt > 0.05) {

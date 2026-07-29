@@ -163,6 +163,8 @@ export class Overlay {
   toggle() {
     this.visible = !this.visible;
     this.root.style.display = this.visible ? 'block' : 'none';
+    // Release pointer lock so the cursor is available to drive the controls.
+    if (this.visible && document.pointerLockElement) document.exitPointerLock();
   }
 
   /** Push a frame-time sample (ms) and refresh graph/stats on a throttle. */

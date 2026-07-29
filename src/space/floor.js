@@ -160,19 +160,28 @@ export class GasFloor {
         const yBase = this._baseHeight(wx, wz);
         pos[vi * 3 + 1] = yBase + (b - d) * amp;
 
-        // Glow colour: cyan cool wake -> hot magenta crest, plus icy tint.
+        // Wake colour: cyan cool wake -> hot magenta crest.
         const heat = clamp01(g);
         const mix = smoothstep(0.0, 1.0, heat);
-        let r = cool.r + (hot.r - cool.r) * mix;
-        let gg = cool.g + (hot.g - cool.g) * mix;
-        let bb = cool.b + (hot.b - cool.b) * mix;
+        const wr = cool.r + (hot.r - cool.r) * mix;
+        const wg = cool.g + (hot.g - cool.g) * mix;
+        const wb = cool.b + (hot.b - cool.b) * mix;
         // Berm rims catch light and glow a touch.
         const rim = clamp01(b * 0.6);
-        const lum = heat * 1.4 + rim * 0.5;
-        // Ice shifts toward a cold white-blue sparkle.
-        r = (r * lum) * (1 - ic) + ic * (0.7 + heat) * 0.9;
-        gg = (gg * lum) * (1 - ic) + ic * (0.85 + heat) * 0.95;
-        bb = (bb * lum) * (1 - ic) + ic * (1.0);
+        const lum = heat * 1.6 + rim * 0.6;
+
+        // Living-sea base glow: low-frequency nebula colour everywhere, so the
+        // undisturbed gas already reads as luminous, not dead-dark.
+        const bn = fbm2(wx * 0.0011 + 7, wz * 0.0011, 3) * 0.5 + 0.5;
+        let r = 0.05 + 0.10 * bn + wr * lum;
+        let gg = 0.09 + 0.05 * (1 - bn) + wg * lum;
+        let bb = 0.17 + 0.11 * bn + wb * lum;
+
+        // Ice frosts the gas toward a cold white-blue.
+        r = r * (1 - ic) + ic * (0.75 + heat * 0.5);
+        gg = gg * (1 - ic) + ic * (0.88 + heat * 0.4);
+        bb = bb * (1 - ic) + ic * 1.0;
+
         col[vi * 4] = r;
         col[vi * 4 + 1] = gg;
         col[vi * 4 + 2] = bb;

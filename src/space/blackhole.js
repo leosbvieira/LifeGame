@@ -33,6 +33,7 @@ export function buildBlackHole(scene, opts = {}) {
   hmat.disableLighting = true;
   horizon.material = hmat;
   horizon.isPickable = false;
+  horizon.applyFog = false;
   hmat.freeze();
 
   // --- Accretion disk ---
@@ -52,6 +53,7 @@ export function buildBlackHole(scene, opts = {}) {
   dmat.specularColor = new Color3(0, 0, 0);
   disk.material = dmat;
   disk.isPickable = false;
+  disk.applyFog = false;
   dmat.freeze();
 
   // --- Photon ring: thin bright torus just outside the horizon ---
@@ -65,6 +67,7 @@ export function buildBlackHole(scene, opts = {}) {
   pmat.alpha = 0.95;
   photon.material = pmat;
   photon.isPickable = false;
+  photon.applyFog = false;
   pmat.freeze();
 
   const worldCenter = new Vector3();
