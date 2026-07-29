@@ -53,10 +53,10 @@ export class World {
 
     // Distant bodies.
     setLoad?.(0.68, 'placing Saturn');
-    this.saturn = buildSaturn(scene, { position: new Vector3(7200, 2600, 12000) });
+    this.saturn = buildSaturn(scene, { position: new Vector3(4200, 3200, 8600), radius: 940 });
 
     setLoad?.(0.72, 'collapsing a singularity');
-    this.blackHole = buildBlackHole(scene, { position: new Vector3(-9400, 2100, 7600) });
+    this.blackHole = buildBlackHole(scene, { position: new Vector3(-4600, 2900, 7800), radius: 760 });
 
     // Lighting + shadows.
     setLoad?.(0.76, 'raking starlight');
