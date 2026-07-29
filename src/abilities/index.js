@@ -2,13 +2,18 @@ import {
   ParticleSystem,
   PointLight,
   Vector3,
+  Quaternion,
+  Axis,
+  MeshBuilder,
+  Mesh,
+  StandardMaterial,
   Color3,
   Color4,
   RawTexture,
   Texture,
   Constants,
 } from '@babylonjs/core';
-import { v3a, v3b, v3c, clamp, damp, hash11 } from '../core/scratch.js';
+import { v3a, v3b, v3c, v3d, qa, clamp, damp, lerp, hash11 } from '../core/scratch.js';
 
 /**
  * Ship systems on keys 1–5. Every one shares the bending grammar: eased in from
@@ -73,6 +78,68 @@ export class AbilitySystem {
     this.vortex = { active: false, t: 0, life: 2.4, x: 0, z: 0 };
 
     this._target = new Vector3();
+    this._t = 0;
+    this._buildFx();
+  }
+
+  /** Reusable additive geometry that gives each system a distinct silhouette.
+   *  All hidden by default; positioned/scaled per frame while their effect runs. */
+  _buildFx() {
+    const scene = this.scene;
+    const fx = (mesh, r, g, b) => {
+      const m = new StandardMaterial(mesh.name + 'Mat', scene);
+      m.emissiveColor = new Color3(r, g, b);
+      m.diffuseColor = new Color3(0, 0, 0);
+      m.disableLighting = true;
+      m.alphaMode = Constants.ALPHA_ADD;
+      // alpha < 1 forces the material into the transparent pass so ALPHA_ADD is
+      // actually applied; at alpha=1 Babylon treats it as opaque and the mesh
+      // renders as a solid dark shape that occludes the scene.
+      m.alpha = 0.9;
+      m.disableDepthWrite = true;
+      m.backFaceCulling = false;
+      mesh.material = m;
+      mesh.isPickable = false;
+      mesh.applyFog = false;
+      mesh.setEnabled(false);
+      mesh.rotationQuaternion = new Quaternion();
+      return m;
+    };
+
+    // Tractor beam: a unit cylinder along Y, oriented ship->aim each frame.
+    this.beam = MeshBuilder.CreateCylinder('fxBeam', { height: 1, diameter: 1, tessellation: 12 }, scene);
+    this.beamMat = fx(this.beam, 0.3, 1.0, 0.85);
+
+    // Pulse shockwave: a flat expanding ring.
+    this.pulseRing = MeshBuilder.CreateTorus('fxPulseRing', { diameter: 1, thickness: 0.08, tessellation: 48 }, scene);
+    this.pulseRing.rotation.x = Math.PI / 2;
+    this.pulseRing.bakeCurrentTransformIntoVertices();
+    this.pulseRingMat = fx(this.pulseRing, 0.4, 0.8, 1.0);
+
+    // Implode dome: a hemisphere shockwave.
+    this.dome = MeshBuilder.CreateSphere('fxDome', { diameter: 1, segments: 16, slice: 0.5 }, scene);
+    this.domeMat = fx(this.dome, 0.7, 0.5, 1.0);
+
+    // Vortex funnel: an open cone that spins.
+    this.funnel = MeshBuilder.CreateCylinder('fxFunnel', { height: 1, diameterTop: 1.4, diameterBottom: 0.15, tessellation: 24 }, scene);
+    this.funnelMat = fx(this.funnel, 0.45, 0.65, 1.0);
+
+    // Crystallize: a merged cluster of shard prisms that grows in at the target.
+    const spikes = [];
+    for (let i = 0; i < 8; i++) {
+      const sp = MeshBuilder.CreateCylinder('sp', { height: 1, diameterTop: 0, diameterBottom: 0.3, tessellation: 5 }, scene);
+      const ang = (i / 8) * 6.2832;
+      const rr = 0.3 + hash11(i * 3.7) * 0.55;
+      sp.position.set(Math.cos(ang) * rr, 0.5 * (0.6 + hash11(i * 1.3) * 0.9), Math.sin(ang) * rr);
+      sp.scaling.set(0.5 + hash11(i) * 0.5, 0.7 + hash11(i * 2.1) * 1.0, 0.5 + hash11(i * 1.7) * 0.5);
+      sp.rotation.set((hash11(i * 5) - 0.5) * 0.7, ang, (hash11(i * 9) - 0.5) * 0.7);
+      sp.bakeCurrentTransformIntoVertices();
+      spikes.push(sp);
+    }
+    this.crystalMesh = Mesh.MergeMeshes(spikes, true, true, undefined, false, false);
+    this.crystalMesh.name = 'fxCrystal';
+    this.crystalMat = fx(this.crystalMesh, 0.6, 0.85, 1.0);
+    this.crystalMat.alpha = 0.85;
   }
 
   _makePS(name, cap, tex, blend) {
@@ -99,6 +166,10 @@ export class AbilitySystem {
       all[i].start();
     }
     for (let i = 0; i < this.lights.length; i++) this.lights[i].light.intensity = 0.001;
+    // Enable the FX meshes so their pipelines compile during warm-up; the update
+    // methods disable them again on the first inactive frame.
+    const fxm = [this.beam, this.pulseRing, this.dome, this.funnel, this.crystalMesh];
+    for (let i = 0; i < fxm.length; i++) fxm[i].setEnabled(true);
   }
 
   /** Compute the aim point on the gas plane ahead of the ship into this._target. */
@@ -135,6 +206,7 @@ export class AbilitySystem {
     const inp = this.input;
     const field = this.field;
     const ship = this.ship;
+    this._t += dt;
 
     // --- Continuous ship draft: the hull carves the gas sea below it. ---
     // Proximity-scaled: skimming low leaves a deep glowing trench with berms;
@@ -222,6 +294,8 @@ export class AbilitySystem {
     p.t = 0;
     p.x = a.x;
     p.z = a.z;
+    p.ox = a.x;
+    p.oz = a.z;
     p.dx = this.ship.forward.x;
     p.dz = this.ship.forward.z;
     this.psPulse.emitter.copyFromFloats(a.x, this.world.floor.baseY + 8, a.z);
@@ -240,10 +314,10 @@ export class AbilitySystem {
 
   _updatePulse(dt) {
     const p = this.pulse;
-    if (!p.active) return;
+    if (!p.active) { this.pulseRing.setEnabled(false); return; }
     p.t += dt;
     const k = p.t / p.life;
-    if (k >= 1) { p.active = false; return; }
+    if (k >= 1) { p.active = false; this.pulseRing.setEnabled(false); return; }
     // The crescent travels forward, ploughing a channel with berms at its rim.
     const speed = 190;
     p.x += p.dx * speed * dt;
@@ -255,6 +329,13 @@ export class AbilitySystem {
     for (let s = -1; s <= 1; s += 2) {
       this.field.splat(p.x + px * 26 * s, p.z + pz * 26 * s, 16, 0, 0.9 * strength, 0.5 * strength, 0);
     }
+    // Expanding shock ring from the origin.
+    this.pulseRing.setEnabled(true);
+    this.pulseRing.position.set(p.ox, this.world.floor.baseY + 6, p.oz);
+    const rad = 16 + k * 210;
+    this.pulseRing.scaling.set(rad, rad, rad);
+    const e = strength * 1.3;
+    this.pulseRingMat.emissiveColor.set(0.4 * e, 0.8 * e, 1.0 * e);
   }
 
   // ---- 2 · TRACTOR (held) ---------------------------------------------------
@@ -275,9 +356,24 @@ export class AbilitySystem {
       // Score a thin continuous line in the gas.
       this.field.splat(a.x, a.z, 12, 0.35 * dt * 60 * 0.1, 0.25 * dt * 60 * 0.1, 0.8 * dt * 60 * 0.1, 0);
       this._spawnLight(a.x, this.world.floor.baseY + 14, a.z, 0.3, 0.9, 0.8, 1.6, 0.1, 220);
-    } else if (ps.isStarted()) {
-      ps.emitRate = 0;
-      ps.stop();
+
+      // Continuous beam from the ship nose to the aim point.
+      const nx = this.ship.position.x + this.ship.forward.x * 5;
+      const ny = this.ship.position.y + this.ship.forward.y * 5;
+      const nz = this.ship.position.z + this.ship.forward.z * 5;
+      const bx = a.x, by = this.world.floor.baseY + 8, bz = a.z;
+      const dx = bx - nx, dy = by - ny, dz = bz - nz;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      this.beam.setEnabled(true);
+      this.beam.position.set((nx + bx) * 0.5, (ny + by) * 0.5, (nz + bz) * 0.5);
+      v3d.set(dx / len, dy / len, dz / len);
+      Quaternion.FromUnitVectorsToRef(Axis.Y, v3d, qa);
+      this.beam.rotationQuaternion.copyFrom(qa);
+      const pw = 2.2 + Math.sin(this._t * 22) * 0.6;
+      this.beam.scaling.set(pw, len, pw);
+    } else {
+      if (ps.isStarted()) { ps.emitRate = 0; ps.stop(); }
+      this.beam.setEnabled(false);
     }
   }
 
@@ -307,12 +403,19 @@ export class AbilitySystem {
 
   _updateImplode(dt) {
     const im = this.implode;
-    if (!im.active) return;
+    if (!im.active) { this.dome.setEnabled(false); return; }
     im.t += dt;
-    if (im.t >= im.life) { im.active = false; return; }
+    if (im.t >= im.life) { im.active = false; this.dome.setEnabled(false); return; }
     // Rim keeps settling: berm relaxes slightly inward as fallout lands.
     const k = im.t / im.life;
     this.field.splat(im.x, im.z, 40, 0.1 * (1 - k), 0.3 * (1 - k), 0.4 * (1 - k), 0);
+    // Expanding hemisphere shockwave.
+    this.dome.setEnabled(true);
+    this.dome.position.set(im.x, this.world.floor.baseY + 2, im.z);
+    const rad = 24 + k * 150;
+    this.dome.scaling.set(rad, rad * 0.6, rad);
+    const e = (1 - k) * 1.1;
+    this.domeMat.emissiveColor.set(0.7 * e, 0.5 * e, 1.0 * e);
   }
 
   // ---- 4 · CRYSTALLIZE ------------------------------------------------------
@@ -338,13 +441,21 @@ export class AbilitySystem {
 
   _updateCrystal(dt) {
     const c = this.crystal;
-    if (!c.active) return;
+    if (!c.active) { this.crystalMesh.setEnabled(false); return; }
     c.t += dt;
     const k = c.t / c.life;
-    if (k >= 1) { c.active = false; return; }
+    if (k >= 1) { c.active = false; this.crystalMesh.setEnabled(false); return; }
     // Ice grows outward from the point, permanently frosting the gas (glossy).
     const radius = 12 + k * 46;
     this.field.splat(c.x, c.z, radius, 0.0, 0.15, 0.4 * (1 - k), 0.9 * (1 - k) * dt * 60 * 0.08 + 0.02);
+    // Crystal cluster grows out of the drift, then holds and fades at the end.
+    this.crystalMesh.setEnabled(true);
+    this.crystalMesh.position.set(c.x, this.world.floor.baseY, c.z);
+    const grow = Math.min(1, k * 2.4);
+    const s = grow * 11;
+    this.crystalMesh.scaling.set(s, s * 1.9, s);
+    const e = k < 0.8 ? 1 : Math.max(0, 1 - (k - 0.8) / 0.2);
+    this.crystalMat.emissiveColor.set(0.6 * e, 0.85 * e, 1.0 * e);
   }
 
   // ---- 5 · VORTEX -----------------------------------------------------------
@@ -373,10 +484,18 @@ export class AbilitySystem {
 
   _updateVortex(dt) {
     const v = this.vortex;
-    if (!v.active) return;
+    if (!v.active) { this.funnel.setEnabled(false); return; }
     v.t += dt;
     const k = v.t / v.life;
-    if (k >= 1) { v.active = false; return; }
+    if (k >= 1) { v.active = false; this.funnel.setEnabled(false); return; }
+    // Spinning funnel column (wide top, narrow base) rising from the sea.
+    this.funnel.setEnabled(true);
+    const hgt = 140;
+    const wide = 95 * (0.35 + 0.65 * Math.sin(k * Math.PI));
+    this.funnel.position.set(v.x, this.world.floor.baseY + hgt * 0.5, v.z);
+    this.funnel.scaling.set(wide, hgt, wide);
+    const fe = (1 - k * 0.5) * 0.8;
+    this.funnelMat.emissiveColor.set(0.45 * fe, 0.65 * fe, 1.0 * fe);
     // Strip gas from a ring around the center; the ring rises as a glowing berm.
     const ringR = 46 + k * 34;
     const spin = v.t * 6;
