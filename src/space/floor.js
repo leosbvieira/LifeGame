@@ -28,6 +28,7 @@ export class GasFloor {
     this.settings = settings;
     this.M = isLite() ? 96 : 168; // grid resolution (verts per side)
     this.baseY = 0;
+    this._time = 0;
 
     const M = this.M;
     const half = field.worldSize * 0.5;
@@ -97,11 +98,17 @@ export class GasFloor {
     this.hotGlow = new Color3(0.9, 0.55, 1.0); // magenta-white crest
   }
 
-  /** Base undulation of the undisturbed gas sea, sampled in world space. */
+  /** Base undulation of the undisturbed gas sea, sampled in world space.
+   *  A slow traveling swell (driven by this._time) keeps the sea alive. */
   _baseHeight(wx, wz) {
     const s = 0.0016;
+    const tm = this._time;
     let h = fbm2(wx * s, wz * s, 4) * 26;
     h += noise2(wx * s * 4.2 + 10, wz * s * 4.2) * 6;
+    // Gentle drifting swells so the gas breathes rather than sitting frozen.
+    h += Math.sin(wx * 0.006 + tm * 0.55) * 3.5;
+    h += Math.sin(wz * 0.0045 - tm * 0.42) * 3.0;
+    h += Math.sin((wx + wz) * 0.011 + tm * 0.8) * 1.8;
     return h;
   }
 
@@ -110,6 +117,7 @@ export class GasFloor {
     const M = this.M;
     const half = field.worldSize * 0.5;
     const step = field.worldSize / (M - 1);
+    this._time += dt;
 
     // Snap follow position to texel so the surface doesn't swim.
     const t = field.texel;
