@@ -136,15 +136,31 @@ export class AbilitySystem {
     const field = this.field;
     const ship = this.ship;
 
-    // --- Continuous ship draft: the hull disturbs the gas below it. ---
-    // Stronger with speed + boost; this is the always-on wake.
+    // --- Continuous ship draft: the hull carves the gas sea below it. ---
+    // Proximity-scaled: skimming low leaves a deep glowing trench with berms;
+    // flying high leaves the sea pristine. This is the core deformable trail.
     const spd = ship.speed01;
     const sx = ship.position.x;
     const sz = ship.position.z;
-    const draftDepth = (0.08 + spd * 0.5 + ship.boostAmt * 0.7) * dt * 60;
-    const draftGlow = (0.06 + spd * 0.4 + ship.boostAmt * 0.55) * dt * 60;
-    const draftR = 16 + spd * 18 + ship.boostAmt * 22;
-    field.splat(sx, sz, draftR, draftDepth * 0.12, draftDepth * 0.08, draftGlow * 0.09, 0);
+    const seaY = this.world.floor.baseY + this.world.floor._baseHeight(sx, sz);
+    const clearance = ship.position.y - seaY;
+    const prox = clamp(1 - clearance / 130, 0, 1);
+    const f = dt * 60;
+
+    if (prox > 0.02) {
+      const carve = (0.35 + spd * 0.9 + ship.boostAmt * 1.0) * prox;
+      const dGlow = (0.4 + spd * 0.9 + ship.boostAmt * 1.0) * prox;
+      const dR = 13 + spd * 12 + ship.boostAmt * 14;
+      // Main trench along the ship's ground track.
+      field.splat(sx, sz, dR, carve * 0.09 * f, 0, dGlow * 0.06 * f, 0);
+      // Berms thrown to either side (perpendicular to velocity).
+      const vlen = Math.hypot(ship.velocity.x, ship.velocity.z) || 1;
+      const pxn = -ship.velocity.z / vlen;
+      const pzn = ship.velocity.x / vlen;
+      for (let s = -1; s <= 1; s += 2) {
+        field.splat(sx + pxn * dR * s, sz + pzn * dR * s, dR * 0.65, 0, carve * 0.13 * f, dGlow * 0.035 * f, 0);
+      }
+    }
 
     // --- Engine ion trail: emit from the tail, streaming backward. ---
     const eng = this.psEngine;

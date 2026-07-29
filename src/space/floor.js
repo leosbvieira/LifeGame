@@ -151,14 +151,28 @@ export class GasFloor {
         let g = 0, ic = 0, b = 0;
         if (idx >= 0) { g = glow[idx]; ic = ice[idx]; b = berm[idx]; }
 
-        // Living-sea base glow (albedo): low-frequency luminous nebula colour.
-        // The scene lights shade this via the recomputed normals.
+        // Living-sea base glow (albedo): regional nebula colour that drifts
+        // teal -> blue -> violet across the field, so the sea isn't monochrome.
         const bn = fbm2(wx * 0.0011 + 7, wz * 0.0011, 3) * 0.5 + 0.5;
         const bn2 = fbm2(wx * 0.004 - 3, wz * 0.004, 2) * 0.5 + 0.5;
+        const k = fbm2(wx * 0.0007 - 12, wz * 0.0007 + 5, 2) * 0.5 + 0.5;
+        let pr, pg, pb;
+        if (k < 0.5) {
+          const tt = k * 2; // teal -> blue
+          pr = 0.07 + (0.16 - 0.07) * tt;
+          pg = 0.44 + (0.26 - 0.44) * tt;
+          pb = 0.52 + (0.78 - 0.52) * tt;
+        } else {
+          const tt = (k - 0.5) * 2; // blue -> violet
+          pr = 0.16 + (0.42 - 0.16) * tt;
+          pg = 0.26 + (0.16 - 0.26) * tt;
+          pb = 0.78 + (0.66 - 0.78) * tt;
+        }
         const cloud = 0.6 + 0.5 * bn2;
-        let r = (0.22 + 0.30 * bn) * cloud;
-        let gg = (0.34 + 0.18 * (1 - bn)) * cloud;
-        let bb = (0.6 + 0.3 * bn) * cloud;
+        const bright = (0.72 + 0.5 * bn) * cloud;
+        let r = pr * bright;
+        let gg = pg * bright;
+        let bb = pb * bright;
 
         // Self-lit hot wake (added AFTER shade so it glows inside trenches).
         const heat = clamp01(g);

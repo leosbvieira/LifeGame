@@ -53,5 +53,31 @@ await settle(3200);
 await p.keyboard.up('ShiftLeft'); await p.keyboard.up('KeyW');
 await p.screenshot({path:'scripts/shots/5_boost.png'}); console.log('5 boost');
 
+// 6. Carve a curved trench skimming low, then freeze an aerial view of the trail.
+await p.evaluate(()=>{
+  const v=window.__voidrift, s=v.ship, f=v.world.floor;
+  const x=-160, z=-160; const y=f.baseY + f._baseHeight(x,z) + 20;
+  s.root.position.set(x,y,z); s.yaw=0.5; s.pitch=0.05; s.velocity.set(0,0,0);
+  v.chase._pos.copyFrom(s.root.position);
+});
+await p.keyboard.down('KeyW');
+for (let i=0;i<11;i++){
+  await settle(340);
+  await p.evaluate(()=>{ const s=window.__voidrift.ship, f=window.__voidrift.world.floor; s.yaw += 0.14; const sy=f.baseY+f._baseHeight(s.root.position.x,s.root.position.z); if (s.root.position.y - sy > 34) s.root.position.y -= 5; });
+}
+await p.keyboard.up('KeyW');
+// Freeze an aerial camera looking straight down at the carved path.
+await p.evaluate(()=>{
+  const v=window.__voidrift, s=v.ship;
+  s.velocity.set(0,0,0);
+  const cx=s.root.position.x, cz=s.root.position.z, cy=v.world.floor.baseY;
+  v.chase.frozen=true;
+  v.chase.cam.position.set(cx-40, cy+320, cz-40);
+  const t=s.root.position.clone(); t.y=cy;
+  v.chase.cam.setTarget(t);
+});
+await settle(2600);
+await p.screenshot({path:'scripts/shots/6_trail.png'}); console.log('6 trail');
+
 console.log('ERRS',errs.filter(e=>!e.includes('404')).slice(0,6));
 await b.close();

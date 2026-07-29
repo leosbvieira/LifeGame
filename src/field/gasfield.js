@@ -167,7 +167,7 @@ export class GasField {
     const tmp = this._tmp;
 
     // Glow cools quickly.
-    const glowDecay = Math.exp(-dt * 1.6);
+    const glowDecay = Math.exp(-dt * 1.05);
     // Depth/berm heal slowly (visible after ~60s at default).
     const healDecay = Math.exp(-dt * 0.09 * refillMul);
     // Ice is near-permanent.

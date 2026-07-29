@@ -38,6 +38,9 @@ export class ChaseCamera {
   }
 
   update(dt) {
+    // Capture-only: when frozen, an external harness controls the camera so it
+    // can frame things the chase rig can't (e.g. an aerial trail reveal).
+    if (this.frozen) return;
     this._t += dt;
     const ship = this.ship;
 
