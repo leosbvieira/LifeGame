@@ -38,7 +38,9 @@ export function buildSkybox(scene, faceSize = 256) {
   mat.reflectionTexture = tex;
   mat.diffuseColor = new Color3(0, 0, 0);
   mat.specularColor = new Color3(0, 0, 0);
-  mat.emissiveColor = new Color3(1, 1, 1);
+  // Skybox recipe: the reflection texture IS the output. A non-zero emissive
+  // here would add a flat white wash over the whole sky (blow-out).
+  mat.emissiveColor = new Color3(0, 0, 0);
   mat.twoSidedLighting = false;
   skybox.material = mat;
   skybox.infiniteDistance = true;
@@ -49,14 +51,21 @@ export function buildSkybox(scene, faceSize = 256) {
   return { skybox, cubeTexture: tex };
 }
 
-/** Bake 6 RGBA faces of nebula. Returns [ +X,-X,+Y,-Y,+Z,-Z ] Uint8Arrays. */
+const sstep = (e0, e1, x) => {
+  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
+/** Bake 6 RGBA faces of nebula. Returns [ +X,-X,+Y,-Y,+Z,-Z ] Uint8Arrays.
+ *  Deep space: mostly black void with sparse coloured nebula regions and a
+ *  faint galactic dust band — NOT uniform milky cloud. */
 function generateNebulaCube(size) {
   const faces = [];
-  // Palette: three colored cloud systems + faint galactic dust.
-  const cA = [0.55, 0.18, 0.62]; // magenta-violet
-  const cB = [0.12, 0.42, 0.6]; // teal
-  const cC = [0.68, 0.5, 0.24]; // dusty gold
-  const base = [0.012, 0.014, 0.028]; // near-black deep space
+  // Palette: three colored cloud systems.
+  const cA = [0.62, 0.16, 0.55]; // magenta-violet
+  const cB = [0.10, 0.42, 0.64]; // teal-blue
+  const cC = [0.70, 0.45, 0.18]; // dusty gold
+  const base = [0.004, 0.006, 0.014]; // near-black deep space
 
   const dir = [0, 0, 0];
   for (let f = 0; f < 6; f++) {
@@ -70,29 +79,31 @@ function generateNebulaCube(size) {
         const inv = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
         const dx = nx * inv, dy = ny * inv, dz = nz * inv;
 
-        // Sample three cloud systems at different offsets/frequencies.
-        const s = 1.7;
-        let d1 = fbm3(dx * s + 11, dy * s, dz * s, 5);
-        let d2 = fbm3(dx * s * 1.4 - 5, dy * s * 1.4 + 3, dz * s * 1.4, 5);
-        let fil = ridged3(dx * 3.1, dy * 3.1 + 20, dz * 3.1, 4);
+        // Large-scale mask that decides WHERE nebula exists at all (sparse).
+        const region = fbm3(dx * 0.9 + 4, dy * 0.9 - 2, dz * 0.9, 4) * 0.5 + 0.5;
+        const gate = sstep(0.52, 0.78, region); // most of the sky stays void
 
-        d1 = clamp01(d1 * 1.4 + 0.15);
-        d2 = clamp01(d2 * 1.5 - 0.05);
-        fil = clamp01(fil * 1.2 - 0.35);
+        // Detail clouds inside the regions.
+        const s = 2.1;
+        let d1 = fbm3(dx * s + 11, dy * s, dz * s, 5) * 0.5 + 0.5;
+        let d2 = fbm3(dx * s * 1.5 - 5, dy * s * 1.5 + 3, dz * s * 1.5, 5) * 0.5 + 0.5;
+        let fil = ridged3(dx * 3.4, dy * 3.4 + 20, dz * 3.4, 4);
 
-        // Galactic band: brighter dust along a great circle (y near a tilted plane).
-        const band = Math.exp(-Math.pow((dy * 0.8 + dx * 0.25) * 2.4, 2)) * 0.35;
+        d1 = sstep(0.45, 0.95, d1) * gate;
+        d2 = sstep(0.5, 1.0, d2) * gate;
+        fil = sstep(0.3, 0.8, fil * 1.4) * gate;
 
-        let r = base[0], g = base[1], bl = base[2];
-        r += cA[0] * d1 * 0.7 + cB[0] * d2 * 0.55 + cC[0] * fil * 0.9 + band * 0.5;
-        g += cA[1] * d1 * 0.7 + cB[1] * d2 * 0.55 + cC[1] * fil * 0.9 + band * 0.42;
-        bl += cA[2] * d1 * 0.7 + cB[2] * d2 * 0.55 + cC[2] * fil * 0.9 + band * 0.6;
+        // Faint tilted galactic dust band.
+        const bandV = dy * 0.82 + dx * 0.28;
+        const band = Math.exp(-(bandV * bandV) * 7.0) * 0.16;
 
-        // Subtle vignette toward deep black so clouds float in void.
-        const dens = clamp01(d1 * 0.5 + d2 * 0.4 + fil * 0.5 + band);
-        r *= 0.4 + 0.6 * dens + 0.15;
-        g *= 0.4 + 0.6 * dens + 0.15;
-        bl *= 0.4 + 0.6 * dens + 0.15;
+        let r = base[0] + cA[0] * d1 * 0.6 + cB[0] * d2 * 0.5 + cC[0] * fil * 0.8 + band * 0.5;
+        let g = base[1] + cA[1] * d1 * 0.6 + cB[1] * d2 * 0.5 + cC[1] * fil * 0.8 + band * 0.42;
+        let bl = base[2] + cA[2] * d1 * 0.6 + cB[2] * d2 * 0.5 + cC[2] * fil * 0.8 + band * 0.62;
+
+        // Overall dim — keep peaks modest so it reads as distant nebula, and
+        // let the deep void dominate.
+        r *= 0.62; g *= 0.62; bl *= 0.62;
 
         const i = (y * size + x) * 4;
         buf[i] = clamp01(r) * 255;

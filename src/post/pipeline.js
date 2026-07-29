@@ -26,7 +26,7 @@ export class PostChain {
     this.dp = dp;
 
     dp.bloomEnabled = true;
-    dp.bloomThreshold = 0.72;
+    dp.bloomThreshold = 0.85;
     dp.bloomWeight = settings.bloomIntensity;
     dp.bloomKernel = lite ? 32 : 96;
     dp.bloomScale = lite ? 0.4 : 0.6;

@@ -68,21 +68,21 @@ export function buildShip(scene, parent) {
   hull.rotationQuaternion = null;
 
   const mat = new PBRMetallicRoughnessMaterial('shipMat', scene);
-  mat.baseColor = new Color3(0.14, 0.16, 0.22);
-  mat.metallic = 1.0;
-  mat.roughness = 0.34;
-  mat.emissiveColor = new Color3(0.02, 0.05, 0.09);
+  mat.baseColor = new Color3(0.22, 0.25, 0.32);
+  mat.metallic = 0.9;
+  mat.roughness = 0.4;
+  mat.emissiveColor = new Color3(0.05, 0.09, 0.15);
   hull.material = mat;
 
   // Engine glow disc — an emissive plane at the tail, additive.
-  const glow = MeshBuilder.CreateDisc('engineGlow', { radius: 0.95, tessellation: 24 }, scene);
+  const glow = MeshBuilder.CreateDisc('engineGlow', { radius: 0.6, tessellation: 24 }, scene);
   glow.parent = parent;
   glow.position.set(0, 0, -3.55);
   glow.rotation.y = Math.PI;
   const gmat = new StandardMaterial('glowMat', scene);
-  gmat.emissiveColor = new Color3(0.35, 0.75, 1.0);
+  gmat.emissiveColor = new Color3(0.22, 0.5, 0.85);
   gmat.disableLighting = true;
-  gmat.alpha = 0.9;
+  gmat.alpha = 0.75;
   gmat.alphaMode = 1; // ADD
   glow.material = gmat;
   glow.isPickable = false;

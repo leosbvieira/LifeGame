@@ -3,13 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "VOIDRIFT — a WebGPU space-exploration graphics tech demo (Babylon.js).",
+  "description": "VOIDRIFT \u2014 a WebGPU space-exploration graphics tech demo (Babylon.js).",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host",
     "boot-check": "node scripts/boot-check.mjs",
-    "capture": "node scripts/capture.mjs"
+    "capture": "node scripts/tour.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.0",

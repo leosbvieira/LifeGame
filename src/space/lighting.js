@@ -31,18 +31,11 @@ export function buildLighting(scene) {
   fill.groundColor = new Color3(0.28, 0.12, 0.4); // magenta bounce from the gas
   fill.specular = new Color3(0, 0, 0);
 
-  // Cascaded shadows for the wide gas field.
-  const lite = isLite();
-  const shadow = new CascadedShadowGenerator(lite ? 1024 : 2048, key);
-  shadow.numCascades = lite ? 2 : 3;
-  shadow.lambda = 0.86;
-  shadow.stabilizeCascades = true;
-  shadow.filteringQuality = CascadedShadowGenerator.QUALITY_HIGH;
-  shadow.usePercentageCloserFiltering = true;
-  shadow.shadowMaxZ = 2200;
-  shadow.bias = 0.008;
-  shadow.normalBias = 0.02;
-  shadow.depthClamp = true;
+  // The luminous gas sea is drawn unlit and self-shadows via a baked N·L term
+  // (see floor.js), so a cascaded shadow map has no useful receiver here and is
+  // omitted for the frame budget. The key light still shades the PBR ship and
+  // asteroids. (Deviation noted in DECISIONS.md.)
+  const shadow = null;
 
   return { key, fill, shadow };
 }

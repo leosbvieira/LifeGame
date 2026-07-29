@@ -13,16 +13,26 @@ for a space-exploration setting. The mapping itself is the first "deviation":
 | Warm sun, blue shadows | Cool key light, magenta gas bounce, black-hole + Saturn skies |
 
 ## Environment / verification
-- **Cannot iterate from screenshots in this build environment.** Headless
-  Chromium here does not composite the WebGPU canvas into screenshots (a minimal
-  box scene captured the CSS background, not the render), and the software
-  SwiftShader path crashes under sustained load. Verification therefore rests on
-  `vite build` (imports/syntax) + a headless **boot check** that confirms every
-  system, material, WGSL shader and the post pipeline construct and warm up
-  under a software WebGPU device without throwing (`scripts/boot-check.mjs`).
-  Final visual tuning is expected on a real WebGPU GPU.
-- Added `?lite`, `?min`, `?frames=N` capture modes purely to reduce cost for
-  headless software rendering. They have **no effect** on the default GPU path.
+- Headless Chromium here does **not** composite the WebGPU canvas into a
+  screenshot (a minimal WebGPU box captured the CSS background, not the render)
+  and the software SwiftShader WebGPU path crashes under sustained load — so the
+  shipped WebGPU path can't be screenshotted here.
+- **Workaround that DID let me iterate visually: a WebGL2 capture path (`?gl`).**
+  Babylon is cross-API, so under a WebGL engine the whole scene renders and
+  Playwright *can* composite it — everything except the one WGSL lensing pass
+  (skipped under WebGL). This is capture-only (`src/core/quality.js` isGL) and
+  never ships as a fallback. `scripts/tour.mjs` drives it to compose shots.
+- Iterating on those captures caught real bugs that would have shipped blind:
+  the skybox blowing out to flat white (emissive misuse), the gas sea rendering
+  black (inverted triangle winding → down-facing normals), and several
+  brightness/blow-out calibrations. Exactly the "look at your output" loop the
+  brief demands — recovered via WebGL rather than WebGPU.
+- Baseline guards also run: `vite build` + a software-WebGPU **boot check**
+  (`scripts/boot-check.mjs`) confirming every system/shader/pipeline constructs
+  and warms up without throwing. Final perf + the WGSL lensing pass still need a
+  real WebGPU GPU.
+- `?lite`, `?min`, `?gl`, `?frames=N` are capture-only and have **no effect** on
+  the default GPU path.
 
 ## Rendering approach
 - **Minimized hand-written WGSL to one hero shader** (the black-hole
@@ -50,6 +60,11 @@ for a space-exploration setting. The mapping itself is the first "deviation":
 - **SSR dropped.** No large flat wet/ice planes benefit from it here; the ice
   state instead reads as glossy vertex colour. Reflections come from the nebula
   IBL cube. Saves a full screen-space pass toward the frame budget.
+- **Cascaded shadow map dropped.** The gas sea is the only large receiver and it
+  is drawn as a self-luminous unlit surface (per-vertex glow), so a shadow map
+  has no meaningful receiver. Trench self-shadowing is instead read directly
+  from the recomputed surface normals (the sea shades itself via lighting on its
+  own displaced geometry). Saves the cascade render each frame.
 
 ## Character
 - **The ship replaces the robed figure.** The "cloth" direction (hem/sleeve

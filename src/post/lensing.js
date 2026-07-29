@@ -83,6 +83,13 @@ export class LensingPass {
     this.blackHole = blackHole;
     this.viewport = new Viewport(0, 0, 1, 1);
 
+    // The lensing shader is WGSL — WebGPU only. Under the WebGL capture path,
+    // skip it (the black-hole geometry still renders).
+    if (!scene.getEngine().isWebGPU) {
+      this.pp = null;
+      return;
+    }
+
     let pp;
     try {
       pp = new PostProcess(

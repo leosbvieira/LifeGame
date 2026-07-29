@@ -142,9 +142,9 @@ export class AbilitySystem {
     const sx = ship.position.x;
     const sz = ship.position.z;
     const draftDepth = (0.08 + spd * 0.5 + ship.boostAmt * 0.7) * dt * 60;
-    const draftGlow = (0.15 + spd * 0.9 + ship.boostAmt * 1.2) * dt * 60;
+    const draftGlow = (0.06 + spd * 0.4 + ship.boostAmt * 0.55) * dt * 60;
     const draftR = 16 + spd * 18 + ship.boostAmt * 22;
-    field.splat(sx, sz, draftR, draftDepth * 0.12, draftDepth * 0.08, draftGlow * 0.12, 0);
+    field.splat(sx, sz, draftR, draftDepth * 0.12, draftDepth * 0.08, draftGlow * 0.09, 0);
 
     // --- Engine ion trail: emit from the tail, streaming backward. ---
     const eng = this.psEngine;

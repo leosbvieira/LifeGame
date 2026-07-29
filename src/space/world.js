@@ -17,7 +17,7 @@ import { buildLighting } from './lighting.js';
 import { buildAsteroids } from './asteroids.js';
 import { GasField } from '../field/gasfield.js';
 import { GasFloor } from './floor.js';
-import { isLite, isMin } from '../core/quality.js';
+import { isLite, isMin, isGL } from '../core/quality.js';
 
 /**
  * Owns every environment system and drives their per-frame update. The ship,
@@ -36,9 +36,10 @@ export class World {
 
     const lite = isLite();
 
-    // Sky background (nebula cube + IBL).
+    // Sky background (nebula cube + IBL). Bigger = crisper distant nebula.
     setLoad?.(0.58, 'seeding the void');
-    const { skybox, cubeTexture } = buildSkybox(scene, lite ? 96 : 256);
+    const faceSize = lite ? (isGL() ? 192 : 96) : 512;
+    const { skybox, cubeTexture } = buildSkybox(scene, faceSize);
     skybox.parent = null; // infiniteDistance handles centering
     scene.environmentTexture = cubeTexture;
     scene.environmentIntensity = 0.55;

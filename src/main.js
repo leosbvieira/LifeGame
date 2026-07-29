@@ -12,9 +12,10 @@ import { clamp } from './core/scratch.js';
 import { isLite, isMin } from './core/quality.js';
 
 async function main() {
-  // Lite/min modes (?lite, ?min): reduce cost for headless SwiftShader capture only.
+  // Lite/min/gl modes: for headless capture only, no effect on the real demo.
   const _q = new URLSearchParams(location.search);
-  globalThis.__LITE__ = _q.has('lite');
+  globalThis.__GL__ = _q.has('gl');
+  globalThis.__LITE__ = _q.has('lite') || _q.has('gl');
   globalThis.__MIN__ = _q.has('min');
 
   const canvas = document.getElementById('renderCanvas');

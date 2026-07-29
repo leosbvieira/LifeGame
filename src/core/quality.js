@@ -12,3 +12,10 @@ export function isLite() {
 export function isMin() {
   return typeof globalThis !== 'undefined' && globalThis.__MIN__ === true;
 }
+
+/** WebGL capture mode (URL ?gl): boot a WebGL2 engine instead of WebGPU purely
+ *  so headless CI can composite a screenshot (WebGPU canvases are not captured
+ *  here). The WGSL lensing pass is skipped. NO effect on the shipped WebGPU demo. */
+export function isGL() {
+  return typeof globalThis !== 'undefined' && globalThis.__GL__ === true;
+}

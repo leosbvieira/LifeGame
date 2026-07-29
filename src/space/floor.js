@@ -2,11 +2,7 @@ import {
   Mesh,
   VertexData,
   StandardMaterial,
-  RawTexture,
-  Texture,
-  Constants,
   Color3,
-  Color4,
 } from '@babylonjs/core';
 import { noise2, fbm2, clamp01 } from './noise.js';
 import { smoothstep } from '../core/scratch.js';
@@ -14,13 +10,15 @@ import { isLite } from '../core/quality.js';
 
 /**
  * The luminous gas sea the ship skims across — the deformable "ground" of the
- * demo. A player-following grid patch, CPU-displaced from the GasField every
- * frame with freshly recomputed normals (so trenches self-shadow) and per-vertex
- * glow (so wakes read as hot, disturbed gas).
+ * demo. A single player-following grid patch, CPU-displaced from the GasField
+ * every frame with freshly recomputed normals.
  *
- * Two meshes share one geometry:
- *   base  — lit, gives 3D form + self-shadowing of trenches/berms.
- *   glow  — additive, unlit; per-vertex hot colour paints the trails.
+ * Shading is baked into per-vertex colours on the CPU and the mesh is drawn
+ * UNLIT (disableLighting): this makes the sea reliably self-luminous — the whole
+ * point of a glowing gas sea — while still reading as a formed 3D surface,
+ * because we fold a directional N·L term (form + trench self-shadow) into the
+ * colour ourselves, then add self-lit hot wakes on top so they glow even inside
+ * trenches. One mesh, one draw, no fragile shared-geometry tricks.
  */
 export class GasFloor {
   /** @param {import('@babylonjs/core').Scene} scene @param {import('../field/gasfield.js').GasField} field */
@@ -28,7 +26,7 @@ export class GasFloor {
     this.scene = scene;
     this.field = field;
     this.settings = settings;
-    this.M = isLite() ? 96 : 160; // grid resolution (verts per side)
+    this.M = isLite() ? 96 : 168; // grid resolution (verts per side)
     this.baseY = 0;
 
     const M = this.M;
@@ -42,7 +40,6 @@ export class GasFloor {
     this.uvs = new Float32Array(vcount * 2);
     const indices = new Uint32Array((M - 1) * (M - 1) * 6);
 
-    // Local grid (centered on origin; mesh.position follows the ship).
     for (let z = 0; z < M; z++) {
       for (let x = 0; x < M; x++) {
         const i = z * M + x;
@@ -62,8 +59,8 @@ export class GasFloor {
         const b = a + 1;
         const c = a + M;
         const d = c + 1;
-        indices[t++] = a; indices[t++] = c; indices[t++] = b;
-        indices[t++] = b; indices[t++] = c; indices[t++] = d;
+        indices[t++] = a; indices[t++] = b; indices[t++] = c;
+        indices[t++] = b; indices[t++] = d; indices[t++] = c;
       }
     }
     this.indices = indices;
@@ -79,40 +76,25 @@ export class GasFloor {
     vd.applyToMesh(base, true); // updatable
     base.isPickable = false;
     base.alwaysSelectAsActiveMesh = true;
+    base.useVertexColors = true;
     this.base = base;
+    // Kept for the overlay "trail" toggle (it enables/disables this mesh).
+    this.glow = base;
 
-    // Lit material for form + self-shadow.
+    // Lit mesh: the per-vertex colour is the albedo (bright, so the sea reads as
+    // a luminous gas sea), shaded by the scene key + fill lights for real form.
+    // A small emissive floor keeps shadowed gas from going dead-black.
     const bmat = new StandardMaterial('gasFloorMat', scene);
-    bmat.diffuseColor = new Color3(0.05, 0.11, 0.16);
-    bmat.emissiveColor = new Color3(0.015, 0.03, 0.06);
-    bmat.specularColor = new Color3(0.1, 0.16, 0.22);
-    bmat.specularPower = 24;
-    bmat.bumpTexture = makeDetailNormal(scene, 512);
-    bmat.bumpTexture.uScale = bmat.bumpTexture.vScale = 42;
-    bmat.bumpTexture.level = 0.7;
+    bmat.diffuseColor = new Color3(1, 1, 1); // modulated by vertex colour
+    bmat.emissiveColor = new Color3(0.06, 0.10, 0.18);
+    bmat.specularColor = new Color3(0.06, 0.10, 0.16);
+    bmat.specularPower = 64;
     base.material = bmat;
-    base.useVertexColors = false;
     this.baseMat = bmat;
 
-    // Additive glow overlay sharing the same geometry.
-    const glow = base.clone('gasFloorGlow');
-    glow.material = null;
-    const gmat = new StandardMaterial('gasGlowMat', scene);
-    gmat.disableLighting = true;
-    gmat.emissiveColor = new Color3(1, 1, 1);
-    gmat.diffuseColor = new Color3(0, 0, 0);
-    gmat.specularColor = new Color3(0, 0, 0);
-    gmat.alphaMode = Constants.ALPHA_ADD;
-    glow.material = gmat;
-    glow.useVertexColors = true;
-    glow.isPickable = false;
-    glow.alwaysSelectAsActiveMesh = true;
-    this.glow = glow;
-    this.glowMat = gmat;
-
-    // Glow colour ramp endpoints.
+    // Wake colour ramp endpoints.
     this.coolGlow = new Color3(0.12, 0.5, 0.95); // cyan wake
-    this.hotGlow = new Color3(0.85, 0.55, 1.0); // magenta-white crest
+    this.hotGlow = new Color3(0.9, 0.55, 1.0); // magenta-white crest
   }
 
   /** Base undulation of the undisturbed gas sea, sampled in world space. */
@@ -134,50 +116,60 @@ export class GasFloor {
     const cx = Math.round(shipPos.x / t) * t;
     const cz = Math.round(shipPos.z / t) * t;
     this.base.position.set(cx, this.baseY, cz);
-    this.glow.position.set(cx, this.baseY, cz);
 
     const amp = 30 * this.settings.trailDepth;
     const pos = this.positions;
     const col = this.colors;
+    const nrm = this.normals;
     const depth = field.depth, berm = field.berm, glow = field.glow, ice = field.ice;
-    const N = field.N;
 
     const cool = this.coolGlow, hot = this.hotGlow;
 
+    // Pass 1: displacement.
     for (let z = 0; z < M; z++) {
       for (let x = 0; x < M; x++) {
         const vi = z * M + x;
         const wx = cx - half + x * step;
         const wz = cz - half + z * step;
-
-        // Nearest-texel field sample (window-relative).
         const idx = field.worldIndex(wx, wz);
-        let d = 0, b = 0, g = 0, ic = 0;
-        if (idx >= 0) {
-          d = depth[idx]; b = berm[idx]; g = glow[idx]; ic = ice[idx];
-        }
+        let d = 0, b = 0;
+        if (idx >= 0) { d = depth[idx]; b = berm[idx]; }
+        pos[vi * 3 + 1] = this._baseHeight(wx, wz) + (b - d) * amp;
+      }
+    }
 
-        const yBase = this._baseHeight(wx, wz);
-        pos[vi * 3 + 1] = yBase + (b - d) * amp;
+    // Normals from the new heights (drives baked shading + self-shadow feel).
+    VertexData.ComputeNormals(pos, this.indices, nrm);
 
-        // Wake colour: cyan cool wake -> hot magenta crest.
+    // Pass 2: colour = baked-lit base glow + self-lit hot wake + ice frost.
+    for (let z = 0; z < M; z++) {
+      for (let x = 0; x < M; x++) {
+        const vi = z * M + x;
+        const wx = cx - half + x * step;
+        const wz = cz - half + z * step;
+        const idx = field.worldIndex(wx, wz);
+        let g = 0, ic = 0, b = 0;
+        if (idx >= 0) { g = glow[idx]; ic = ice[idx]; b = berm[idx]; }
+
+        // Living-sea base glow (albedo): low-frequency luminous nebula colour.
+        // The scene lights shade this via the recomputed normals.
+        const bn = fbm2(wx * 0.0011 + 7, wz * 0.0011, 3) * 0.5 + 0.5;
+        const bn2 = fbm2(wx * 0.004 - 3, wz * 0.004, 2) * 0.5 + 0.5;
+        const cloud = 0.6 + 0.5 * bn2;
+        let r = (0.22 + 0.30 * bn) * cloud;
+        let gg = (0.34 + 0.18 * (1 - bn)) * cloud;
+        let bb = (0.6 + 0.3 * bn) * cloud;
+
+        // Self-lit hot wake (added AFTER shade so it glows inside trenches).
         const heat = clamp01(g);
         const mix = smoothstep(0.0, 1.0, heat);
-        const wr = cool.r + (hot.r - cool.r) * mix;
-        const wg = cool.g + (hot.g - cool.g) * mix;
-        const wb = cool.b + (hot.b - cool.b) * mix;
-        // Berm rims catch light and glow a touch.
         const rim = clamp01(b * 0.6);
-        const lum = heat * 1.6 + rim * 0.6;
+        const lum = heat * 1.05 + rim * 0.5;
+        r += (cool.r + (hot.r - cool.r) * mix) * lum;
+        gg += (cool.g + (hot.g - cool.g) * mix) * lum;
+        bb += (cool.b + (hot.b - cool.b) * mix) * lum;
 
-        // Living-sea base glow: low-frequency nebula colour everywhere, so the
-        // undisturbed gas already reads as luminous, not dead-dark.
-        const bn = fbm2(wx * 0.0011 + 7, wz * 0.0011, 3) * 0.5 + 0.5;
-        let r = 0.05 + 0.10 * bn + wr * lum;
-        let gg = 0.09 + 0.05 * (1 - bn) + wg * lum;
-        let bb = 0.17 + 0.11 * bn + wb * lum;
-
-        // Ice frosts the gas toward a cold white-blue.
+        // Ice frosts toward cold white-blue.
         r = r * (1 - ic) + ic * (0.75 + heat * 0.5);
         gg = gg * (1 - ic) + ic * (0.88 + heat * 0.4);
         bb = bb * (1 - ic) + ic * 1.0;
@@ -188,40 +180,8 @@ export class GasFloor {
       }
     }
 
-    VertexData.ComputeNormals(pos, this.indices, this.normals);
     this.base.updateVerticesData('position', pos, false, false);
-    this.base.updateVerticesData('normal', this.normals, false, false);
+    this.base.updateVerticesData('normal', nrm, false, false);
     this.base.updateVerticesData('color', col, false, false);
   }
-}
-
-/** Tiling detail normal map baked from noise (CPU). */
-function makeDetailNormal(scene, size) {
-  const data = new Uint8Array(size * size * 4);
-  const s = 0.06;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const hx1 = fbm2((x + 1) * s, y * s, 4);
-      const hx0 = fbm2((x - 1) * s, y * s, 4);
-      const hy1 = fbm2(x * s, (y + 1) * s, 4);
-      const hy0 = fbm2(x * s, (y - 1) * s, 4);
-      let nx = (hx0 - hx1) * 2.2;
-      let ny = (hy0 - hy1) * 2.2;
-      let nz = 1;
-      const inv = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
-      const i = (y * size + x) * 4;
-      data[i] = (nx * inv * 0.5 + 0.5) * 255;
-      data[i + 1] = (ny * inv * 0.5 + 0.5) * 255;
-      data[i + 2] = (nz * inv * 0.5 + 0.5) * 255;
-      data[i + 3] = 255;
-    }
-  }
-  const tex = new RawTexture(
-    data, size, size,
-    Constants.TEXTUREFORMAT_RGBA, scene, true, false, Texture.TRILINEAR_SAMPLINGMODE
-  );
-  tex.wrapU = Texture.WRAP_ADDRESSMODE;
-  tex.wrapV = Texture.WRAP_ADDRESSMODE;
-  tex.name = 'gasDetailNormal';
-  return tex;
 }
