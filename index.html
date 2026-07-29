@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>THE LONG QUIET — a solitary voyage</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2304070c'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23000' stroke='%23f0a24e' stroke-width='1.5'/%3E%3Cellipse cx='16' cy='16' rx='13' ry='3.5' fill='none' stroke='%23f0a24e' stroke-width='1.2' opacity='.8'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --ice:#8fd8ff;
+    --ice-dim:#4b7d96;
+    --amber:#f0a24e;
+    --amber-dim:#8a5f31;
+    --warn:#ff5c46;
+    --ok:#6ef0a8;
+    --paper:#dfe9f0;
+    --ink:#04070c;
+    --panel:rgba(6,12,18,.72);
+    --line:rgba(143,216,255,.22);
+    --mono:"SF Mono",'SFMono-Regular',ui-monospace,"Cascadia Mono","Roboto Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#000;}
+  body{
+    font-family:var(--mono);
+    color:var(--paper);
+    -webkit-font-smoothing:antialiased;
+    cursor:default;
+    user-select:none;
+  }
+  canvas#gl{position:fixed;inset:0;display:block;width:100%;height:100%;}
+
+  /* --- CRT flavour: scanlines + curvature vignette ---------------------- */
+  #grain{
+    position:fixed;inset:0;pointer-events:none;z-index:5;
+    background:
+      repeating-linear-gradient(180deg,rgba(255,255,255,.022) 0 1px,transparent 1px 3px);
+    mix-blend-mode:overlay;opacity:.55;
+  }
+  #edge{
+    position:fixed;inset:0;pointer-events:none;z-index:6;
+    box-shadow:inset 0 0 220px rgba(0,0,0,.85), inset 0 0 60px rgba(0,0,0,.5);
+  }
+
+  /* --- Generic overlay ---------------------------------------------------- */
+  .overlay{
+    position:fixed;inset:0;z-index:20;display:none;
+    background:radial-gradient(ellipse at center,rgba(3,7,12,.86),rgba(1,2,4,.97));
+    backdrop-filter:blur(3px);
+  }
+  .overlay.show{display:block;}
+
+  /* --- HUD ---------------------------------------------------------------- */
+  #hud{position:fixed;inset:0;z-index:10;pointer-events:none;opacity:0;transition:opacity .6s ease;}
+  #hud.on{opacity:1;}
+  #hud.hidden{opacity:0 !important;}
+  .panel{
+    position:absolute;padding:10px 14px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    font-size:11px;letter-spacing:.11em;line-height:1.65;
+    text-transform:uppercase;
+    box-shadow:0 0 30px rgba(0,0,0,.5);
+  }
+  .panel .k{color:var(--ice-dim);}
+  .panel .v{color:var(--paper);}
+  .big{font-size:15px;letter-spacing:.2em;color:var(--amber);}
+
+  #p-system{top:22px;left:22px;min-width:230px;}
+  #p-log{top:22px;right:22px;min-width:190px;text-align:right;}
+  #p-drive{bottom:22px;left:22px;min-width:250px;}
+  #p-target{bottom:22px;right:22px;min-width:250px;text-align:right;}
+
+  /* throttle bar */
+  .bar{height:7px;background:rgba(143,216,255,.10);border:1px solid var(--line);margin:6px 0 2px;position:relative;overflow:hidden;}
+  .bar > i{position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,var(--ice-dim),var(--ice));display:block;}
+  .bar.pulse > i{background:linear-gradient(90deg,var(--amber-dim),var(--amber));}
+
+  /* --- reticle ------------------------------------------------------------ */
+  #reticle{
+    position:fixed;left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;
+    z-index:11;pointer-events:none;opacity:.85;
+  }
+  #reticle .ring{position:absolute;inset:26px;border:1px solid rgba(143,216,255,.5);border-radius:50%;}
+  #reticle .tick{position:absolute;background:rgba(143,216,255,.6);}
+  #reticle .t1{left:50%;top:0;width:1px;height:12px;margin-left:-.5px;}
+  #reticle .t2{left:50%;bottom:0;width:1px;height:12px;margin-left:-.5px;}
+  #reticle .t3{top:50%;left:0;height:1px;width:12px;margin-top:-.5px;}
+  #reticle .t4{top:50%;right:0;height:1px;width:12px;margin-top:-.5px;}
+  #reticle.locked .ring{border-color:var(--amber);box-shadow:0 0 12px rgba(240,162,78,.5);}
+
+  /* --- world markers ------------------------------------------------------ */
+  #markers{position:fixed;inset:0;z-index:9;pointer-events:none;}
+  .marker{
+    position:absolute;transform:translate(-50%,-50%);
+    font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:rgba(143,216,255,.72);white-space:nowrap;text-align:center;
+    text-shadow:0 0 8px rgba(0,0,0,.9);
+  }
+  .marker .box{width:16px;height:16px;border:1px solid rgba(143,216,255,.55);margin:0 auto 4px;transform:rotate(45deg);}
+  .marker.sig{color:var(--amber);}
+  .marker.sig .box{border-color:var(--amber);box-shadow:0 0 10px rgba(240,162,78,.45);}
+  .marker.sel{color:#fff;}
+  .marker.sel .box{border-color:#fff;width:22px;height:22px;}
+  .marker .dist{opacity:.6;font-size:9px;}
+
+  /* --- scan --------------------------------------------------------------- */
+  #scan{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:150px;height:150px;z-index:11;pointer-events:none;display:none;
+  }
+  #scan.on{display:block;}
+  #scan svg{transform:rotate(-90deg);}
+  #scan .lbl{
+    position:absolute;left:50%;top:calc(100% + 10px);transform:translateX(-50%);
+    font-size:10px;letter-spacing:.24em;color:var(--amber);white-space:nowrap;
+  }
+
+  /* --- centre warnings ---------------------------------------------------- */
+  #warn{
+    position:fixed;left:50%;top:26%;transform:translateX(-50%);z-index:12;
+    text-align:center;pointer-events:none;
+  }
+  #warn div{
+    font-size:13px;letter-spacing:.34em;color:var(--warn);margin:6px 0;
+    text-shadow:0 0 18px rgba(255,92,70,.7);animation:blink 1.1s steps(2,end) infinite;
+  }
+  @keyframes blink{50%{opacity:.25}}
+
+  /* --- subtitle / narration ----------------------------------------------- */
+  #narrate{
+    position:fixed;left:50%;bottom:14%;transform:translateX(-50%);z-index:12;
+    max-width:min(760px,80vw);text-align:center;
+    font-size:13px;line-height:1.9;letter-spacing:.06em;
+    color:rgba(223,233,240,.9);text-shadow:0 2px 20px rgba(0,0,0,.95);
+    opacity:0;transition:opacity 1.2s ease;pointer-events:none;
+  }
+  #narrate.on{opacity:1;}
+
+  /* --- toast -------------------------------------------------------------- */
+  #toasts{position:fixed;left:50%;top:12%;transform:translateX(-50%);z-index:13;text-align:center;}
+  .toast{
+    font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--ok);margin:5px 0;opacity:0;animation:toast 4s ease forwards;
+    text-shadow:0 0 14px rgba(110,240,168,.5);
+  }
+  .toast.warn{color:var(--amber);text-shadow:0 0 14px rgba(240,162,78,.5);}
+  @keyframes toast{
+    0%{opacity:0;transform:translateY(-8px)}
+    12%{opacity:1;transform:none}
+    75%{opacity:1}
+    100%{opacity:0}
+  }
+
+  /* --- title screen ------------------------------------------------------- */
+  #title{z-index:30;background:rgba(0,0,0,.55);}
+  #title.show{display:flex;align-items:center;justify-content:center;}
+  #title .inner{text-align:center;max-width:720px;padding:40px;}
+  #title h1{
+    font-size:clamp(30px,7vw,64px);letter-spacing:.42em;margin:0 0 6px -0.42em;
+    font-weight:400;color:var(--paper);text-shadow:0 0 60px rgba(143,216,255,.35);
+  }
+  #title .sub{
+    font-size:11px;letter-spacing:.5em;color:var(--ice-dim);margin-bottom:38px;text-transform:uppercase;
+  }
+  #title p{font-size:12.5px;line-height:2;color:rgba(223,233,240,.72);letter-spacing:.04em;margin:0 auto 34px;max-width:540px;}
+  .btn{
+    display:inline-block;margin:6px 8px;padding:12px 30px;cursor:pointer;pointer-events:auto;
+    border:1px solid var(--line);background:rgba(143,216,255,.05);
+    font-family:var(--mono);font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--paper);
+    transition:background .2s,border-color .2s,color .2s;
+  }
+  .btn:hover{background:rgba(143,216,255,.14);border-color:var(--ice);color:#fff;}
+  .btn.primary{border-color:var(--amber-dim);color:var(--amber);}
+  .btn.primary:hover{background:rgba(240,162,78,.16);border-color:var(--amber);}
+  .btn:disabled,.btn.off{opacity:.32;cursor:not-allowed;}
+  #title .keys{margin-top:30px;font-size:10px;letter-spacing:.14em;color:var(--ice-dim);line-height:2.1;text-transform:uppercase;}
+
+  /* --- galaxy map --------------------------------------------------------- */
+  #map .wrap{position:absolute;inset:0;display:flex;flex-direction:column;}
+  #map .head{padding:20px 26px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;}
+  #map .head h2{margin:0;font-size:13px;letter-spacing:.4em;font-weight:400;color:var(--amber);text-transform:uppercase;}
+  #map .head .hint{font-size:10px;letter-spacing:.16em;color:var(--ice-dim);text-transform:uppercase;}
+  #map .body{flex:1;position:relative;}
+  #mapcanvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;}
+  #map .side{
+    position:absolute;right:26px;top:26px;width:290px;padding:16px 18px;
+    background:var(--panel);border:1px solid var(--line);font-size:11px;letter-spacing:.09em;line-height:1.8;
+  }
+  #map .side h3{margin:0 0 10px;font-size:12px;letter-spacing:.24em;color:var(--amber);font-weight:400;text-transform:uppercase;}
+  #map .side .row{display:flex;justify-content:space-between;color:var(--ice-dim);text-transform:uppercase;}
+  #map .side .row span:last-child{color:var(--paper);}
+  #map .side .note{margin-top:12px;color:rgba(223,233,240,.6);text-transform:none;letter-spacing:.02em;font-size:11px;line-height:1.7;}
+  #map .actions{position:absolute;left:26px;bottom:26px;}
+
+  /* --- codex / log reader ------------------------------------------------- */
+  .reader{position:absolute;inset:0;display:flex;flex-direction:column;}
+  .reader .head{padding:20px 26px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;}
+  .reader .head h2{margin:0;font-size:13px;letter-spacing:.4em;font-weight:400;color:var(--amber);text-transform:uppercase;}
+  .reader .cols{flex:1;display:flex;min-height:0;}
+  .reader .list{width:320px;border-right:1px solid var(--line);overflow-y:auto;padding:12px 0;}
+  .reader .item{
+    padding:10px 24px;font-size:11px;letter-spacing:.1em;cursor:pointer;pointer-events:auto;
+    color:rgba(223,233,240,.66);text-transform:uppercase;border-left:2px solid transparent;
+  }
+  .reader .item:hover{background:rgba(143,216,255,.06);color:#fff;}
+  .reader .item.sel{border-left-color:var(--amber);color:var(--amber);background:rgba(240,162,78,.06);}
+  .reader .item small{display:block;font-size:9.5px;letter-spacing:.14em;color:var(--ice-dim);margin-top:3px;}
+  .reader .pane{flex:1;padding:34px 46px;overflow-y:auto;}
+  .reader .pane h3{margin:0 0 4px;font-size:16px;letter-spacing:.24em;font-weight:400;color:var(--paper);text-transform:uppercase;}
+  .reader .pane .from{font-size:10px;letter-spacing:.26em;color:var(--amber);text-transform:uppercase;margin-bottom:26px;}
+  .reader .pane pre{
+    font-family:var(--mono);font-size:13px;line-height:2.05;color:rgba(223,233,240,.86);
+    white-space:pre-wrap;margin:0;letter-spacing:.02em;
+  }
+  .reader .pane .empty{color:var(--ice-dim);font-size:12px;letter-spacing:.1em;}
+  .reader .foot{padding:16px 26px;border-top:1px solid var(--line);}
+
+  /* --- pause -------------------------------------------------------------- */
+  #pause{z-index:28;}
+  #pause .inner{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;}
+  #pause h2{font-size:14px;letter-spacing:.5em;color:var(--amber);font-weight:400;margin:0 0 26px;text-transform:uppercase;}
+  #pause .keys{margin-top:28px;font-size:10.5px;letter-spacing:.14em;color:var(--ice-dim);line-height:2.2;text-transform:uppercase;}
+  #pause .keys b{color:var(--paper);font-weight:400;display:inline-block;min-width:120px;text-align:right;margin-right:14px;}
+
+  /* --- ending ------------------------------------------------------------- */
+  #ending{z-index:32;background:#000;}
+  #ending .inner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:8vh 10vw;}
+  #ending pre{
+    font-family:var(--mono);font-size:14px;line-height:2.3;color:rgba(223,233,240,.9);
+    white-space:pre-wrap;letter-spacing:.04em;max-width:720px;text-align:center;
+  }
+
+  /* --- boot --------------------------------------------------------------- */
+  #boot{
+    position:fixed;inset:0;z-index:40;background:#000;display:flex;align-items:center;justify-content:center;
+    transition:opacity 1s ease;
+  }
+  #boot .lines{font-size:11px;letter-spacing:.2em;color:var(--ice-dim);line-height:2.2;text-transform:uppercase;}
+  #boot .lines b{color:var(--ok);font-weight:400;}
+  #boot.gone{opacity:0;pointer-events:none;}
+
+  .fadeable{transition:opacity .35s ease;}
+  @media (max-width:820px){
+    #p-target,#p-log{display:none;}
+    .reader .list{width:180px;}
+    .reader .pane{padding:24px;}
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="grain"></div>
+<div id="edge"></div>
+
+<!-- ================= HUD ================= -->
+<div id="markers"></div>
+
+<div id="hud">
+  <div class="panel" id="p-system">
+    <div class="big" id="sys-name">—</div>
+    <div><span class="k">class</span> <span class="v" id="sys-class">—</span></div>
+    <div><span class="k">bodies</span> <span class="v" id="sys-bodies">0</span>
+         <span class="k">&nbsp;&nbsp;core</span> <span class="v" id="sys-core">—</span></div>
+    <div><span class="k">sector</span> <span class="v" id="sys-sector">—</span></div>
+  </div>
+
+  <div class="panel" id="p-log">
+    <div><span class="k">surveyed</span> <span class="v" id="st-scans">0</span></div>
+    <div><span class="k">signals</span> <span class="v" id="st-logs">0</span></div>
+    <div><span class="k">systems</span> <span class="v" id="st-visited">0</span></div>
+    <div><span class="k">hull</span> <span class="v" id="st-hull">100%</span></div>
+  </div>
+
+  <div class="panel" id="p-drive">
+    <div><span class="k">drive</span> <span class="v" id="dr-mode">impulse</span></div>
+    <div class="bar" id="dr-bar"><i></i></div>
+    <div><span class="k">velocity</span> <span class="v" id="dr-speed">0</span>
+         <span class="k">&nbsp;&nbsp;thr</span> <span class="v" id="dr-thr">0%</span></div>
+  </div>
+
+  <div class="panel" id="p-target">
+    <div><span class="k">target</span> <span class="v" id="tg-name">none</span></div>
+    <div><span class="k">range</span> <span class="v" id="tg-dist">—</span></div>
+    <div><span class="k">status</span> <span class="v" id="tg-state">—</span></div>
+  </div>
+</div>
+
+<div id="reticle">
+  <div class="ring"></div>
+  <div class="tick t1"></div><div class="tick t2"></div>
+  <div class="tick t3"></div><div class="tick t4"></div>
+</div>
+
+<div id="scan">
+  <svg width="150" height="150">
+    <circle cx="75" cy="75" r="60" fill="none" stroke="rgba(143,216,255,.18)" stroke-width="2"></circle>
+    <circle id="scan-arc" cx="75" cy="75" r="60" fill="none" stroke="#f0a24e" stroke-width="2"
+            stroke-dasharray="377" stroke-dashoffset="377" stroke-linecap="round"></circle>
+  </svg>
+  <div class="lbl" id="scan-lbl">SCANNING</div>
+</div>
+
+<div id="warn"></div>
+<div id="narrate"></div>
+<div id="toasts"></div>
+
+<!-- ================= TITLE ================= -->
+<div class="overlay" id="title">
+  <div class="inner">
+    <h1>THE LONG QUIET</h1>
+    <div class="sub">a solitary voyage</div>
+    <p>
+      Nine ships went out along the arm. Yours is the last one still transmitting.<br><br>
+      There is a mass at the centre of this galaxy that swallows light and gives
+      nothing back, and somewhere between here and there, someone left a trail of
+      messages for whoever came next.<br><br>
+      Nobody is expecting you home.
+    </p>
+    <div>
+      <button class="btn primary" id="btn-begin">Begin</button>
+      <button class="btn off" id="btn-continue" disabled>Continue</button>
+    </div>
+    <div class="keys">
+      mouse — steer &nbsp;·&nbsp; W / S — throttle &nbsp;·&nbsp; A / D — roll &nbsp;·&nbsp; shift — boost<br>
+      X — pulse drive &nbsp;·&nbsp; F — scan &nbsp;·&nbsp; T — cycle target &nbsp;·&nbsp; M — star chart<br>
+      C — view &nbsp;·&nbsp; J — journal &nbsp;·&nbsp; H — hide hud &nbsp;·&nbsp; esc — pause
+    </div>
+  </div>
+</div>
+
+<!-- ================= GALAXY MAP ================= -->
+<div class="overlay" id="map">
+  <div class="wrap">
+    <div class="head">
+      <h2>Star Chart</h2>
+      <div class="hint">click a system · drag to rotate · scroll to zoom · [M] close</div>
+    </div>
+    <div class="body">
+      <canvas id="mapcanvas"></canvas>
+      <div class="side">
+        <h3 id="map-name">no selection</h3>
+        <div class="row"><span>class</span><span id="map-class">—</span></div>
+        <div class="row"><span>bodies</span><span id="map-bodies">—</span></div>
+        <div class="row"><span>distance</span><span id="map-dist">—</span></div>
+        <div class="row"><span>status</span><span id="map-status">—</span></div>
+        <div class="note" id="map-note">Select a system within jump range.</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="btn-jump">Engage warp</button>
+        <button class="btn" id="btn-map-close">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= JOURNAL ================= -->
+<div class="overlay" id="codex">
+  <div class="reader">
+    <div class="head">
+      <h2>Journal</h2>
+      <div class="hint" style="font-size:10px;letter-spacing:.16em;color:var(--ice-dim);text-transform:uppercase;">[J] close</div>
+    </div>
+    <div class="cols">
+      <div class="list" id="codex-list"></div>
+      <div class="pane" id="codex-pane"><div class="empty">Nothing recovered yet.</div></div>
+    </div>
+    <div class="foot"><button class="btn" id="btn-codex-close">Close</button></div>
+  </div>
+</div>
+
+<!-- ================= LOG POPUP ================= -->
+<div class="overlay" id="logview">
+  <div class="reader">
+    <div class="head"><h2>Signal recovered</h2></div>
+    <div class="cols">
+      <div class="pane" style="flex:1">
+        <h3 id="log-title">—</h3>
+        <div class="from" id="log-from">—</div>
+        <pre id="log-body"></pre>
+      </div>
+    </div>
+    <div class="foot"><button class="btn primary" id="btn-log-close">Close transmission</button></div>
+  </div>
+</div>
+
+<!-- ================= PAUSE ================= -->
+<div class="overlay" id="pause">
+  <div class="inner">
+    <h2>Holding position</h2>
+    <div>
+      <button class="btn primary" id="btn-resume">Resume</button>
+      <button class="btn" id="btn-save">Save</button>
+      <button class="btn" id="btn-mute">Sound: on</button>
+      <button class="btn" id="btn-quit">Abandon voyage</button>
+    </div>
+    <div class="keys">
+      <div><b>mouse</b> pitch and yaw</div>
+      <div><b>W / S</b> throttle up / down</div>
+      <div><b>A / D</b> roll</div>
+      <div><b>Q / E / R / V</b> lateral thrusters</div>
+      <div><b>shift</b> boost</div>
+      <div><b>X</b> pulse drive (hold)</div>
+      <div><b>space</b> retro brake</div>
+      <div><b>T</b> cycle target</div>
+      <div><b>F</b> scan target (hold)</div>
+      <div><b>M</b> star chart / warp</div>
+      <div><b>J</b> journal</div>
+      <div><b>C</b> cockpit / chase view</div>
+      <div><b>H</b> hide interface</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ENDING ================= -->
+<div class="overlay" id="ending">
+  <div class="inner"><pre id="ending-text"></pre></div>
+</div>
+
+<!-- ================= BOOT ================= -->
+<div id="boot">
+  <div class="lines" id="boot-lines"></div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="src/util.js"></script>
+<script src="src/shaders.js"></script>
+<script src="src/lore.js"></script>
+<script src="src/galaxy.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/space.js"></script>
+<script src="src/system.js"></script>
+<script src="src/blackhole.js"></script>
+<script src="src/ship.js"></script>
+<script src="src/post.js"></script>
+<script src="src/hud.js"></script>
+<script src="src/game.js"></script>
+</body>
+</html>
